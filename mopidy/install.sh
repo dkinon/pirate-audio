@@ -25,9 +25,9 @@ function check_exit {
   MESSAGE=$3
   FATAL=$4
 
-  if [ "EXIT_CODE" != "$EXPECTED_EXIT" ]; then
+  if [ "$EXIT_CODE" != "$EXPECTED_EXIT" ]; then
     if [ -n "$MESSAGE" ]; then
-      warning "$MESSAGE"
+      warning "$MESSAGE ($EXIT_CODE)"
       if [ -n "$FATAL" ]; then
         exit $EXIT_CODE
       fi
