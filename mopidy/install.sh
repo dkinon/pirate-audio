@@ -19,6 +19,22 @@ function add_to_config_text {
     fi
 }
 
+function check_exit {
+  EXIT_CODE=$1
+  EXPECTED_EXIT=${2:-0}
+  MESSAGE=$3
+  FATAL=$4
+
+  if [ "EXIT_CODE" != "$EXPECTED_EXIT" ]; then
+    if [ -n "$MESSAGE" ]; then
+      warning "$MESSAGE"
+      if [ -n "$FATAL" ]; then
+        exit $EXIT_CODE
+      fi
+    fi
+  fi
+}
+
 success() {
 	echo -e "$(tput setaf 2)$1$(tput sgr0)"
 }
@@ -36,6 +52,7 @@ warning() {
 inform "Updating apt and installing dependencies"
 apt update
 apt install -y python-rpi.gpio python-spidev python-pip python-pil python-numpy
+check_exit $? 0 "error: failed to install package dependencies." fatal
 echo
 
 # Verify python version via pip
@@ -87,6 +104,7 @@ if [ ! -f "/etc/apt/sources.list.d/mopidy.list" ]; then
   inform "Adding Mopidy apt source"
   wget -q -O - https://apt.mopidy.com/mopidy.gpg | apt-key add -
   wget -q -O /etc/apt/sources.list.d/mopidy.list https://apt.mopidy.com/buster.list
+  check_exit $? 0 "error: setting up mopidy apt source failed." fatal
   apt update
   echo
 fi
@@ -94,12 +112,26 @@ fi
 # Install Mopidy and core plugins for Spotify
 inform "Installing mopidy packages"
 apt install -y --allow-downgrades mopidy=$MOPIDY_VERSION mopidy-spotify=$MOPIDY_SPOTIFY_VERSION
-apt-mark hold mopidy mopidy-spotify
+check_exit $? 0 "error: failed to install mopidy packages." fatal
+echo
+
+# Setup mopidy package pinning
+inform "Configuring mopidy package version pinning"
+echo "# Pimoroni pirate-audio package version pinning
+
+Package: mopidy
+Pin: version $MOPIDY_VERSION*
+Pin-Priority: 1
+
+Package: mopidy-spotify
+Pin: version $MOPIDY_SPOTIFY_VERSION*
+Pin-Priority: 1" > /etc/apt/preferences.d/01-mopidy
 echo
 
 # Install Mopidy Iris web UI
 inform "Installing Iris web UI for Mopidy"
 $PIP_BIN install mopidy-iris
+check_exit $? 0 "error: failed to install mopidy-iris pip package." fatal
 echo
 
 # Allow Iris to run its system.sh script for https://github.com/pimoroni/pirate-audio/issues/3
@@ -113,6 +145,7 @@ fi
 # Install support plugins for Pirate Audio
 inform "Installing Pirate Audio plugins..."
 $PIP_BIN install --upgrade Mopidy-PiDi pidi-display-pil pidi-display-st7789 mopidy-raspberry-gpio
+check_exit $? 0 "error: failed to install pirate audio plugin pip packages." fatal
 echo
 
 # Reset mopidy.conf to its default state
@@ -120,6 +153,7 @@ if [ $EXISTING_CONFIG ]; then
   warning "Resetting $MOPIDY_CONFIG to package defaults."
   inform "Any custom settings have been backed up to $MOPIDY_CONFIG.backup-$DATESTAMP"
   apt install --reinstall -o Dpkg::Options::="--force-confask,confnew,confmiss" mopidy=$MOPIDY_VERSION > /dev/null 2>&1
+  check_exit $? 0 "error: failed to reset $MOPIDY_CONFIG to package defaults." fatal
   echo
 fi
 
@@ -157,6 +191,7 @@ password =       ; Must be set.
 client_id =      ; Must be set.
 client_secret =  ; Must be set.
 EOF
+check_exit $? 0 "error: failed to configure mopidy" fatal
 echo
 
 # MAYBE?: Remove the sources.list to avoid any future issues with apt.mopidy.com failing
@@ -167,6 +202,7 @@ usermod -a -G spi,i2c,gpio,video mopidy
 inform "Enabling and starting Mopidy"
 sudo systemctl enable mopidy
 sudo systemctl restart mopidy
+check_exit $? 0 "error: failed to start mopidy process." fatal
 
 echo
 success "All done!"
